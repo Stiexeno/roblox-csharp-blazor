@@ -27,7 +27,7 @@ The same component, written two ways. Pick whichever fits your taste — both pr
             BackgroundColor3="@(new Color3(0.2f, 0.4f, 0.8f))"
             TextColor3="@(new Color3(1f, 1f, 1f))"
             Text="@($"{Label}: {_count}")"
-            onclick="@(EventCallback.Factory.Create(this, OnClick))">
+            @onclick="OnClick">
 </TextButton>
 
 @code {
@@ -43,7 +43,7 @@ The same component, written two ways. Pick whichever fits your taste — both pr
 }
 ```
 
-> **Event handler caveat.** Razor's `@onclick="MyHandler"` directive only wires up automatically on elements Razor recognizes as HTML — Roblox UI tag names (`TextButton`, `Frame`, …) aren't in that set, so `@onclick` would emit a literal string attribute instead of an `EventCallback`. Use the explicit `onclick="@(EventCallback.Factory.Create(this, OnClick))"` form shown above and you'll get the right wiring. A `@onMouseButton1Click`-style polish layer is on the roadmap.
+> **Event handlers.** `@onclick`, `@onmouseenter`, `@onfocus`, and any `@onXxx` directive work transparently on Roblox UI tags — the transpiler rewrites Razor's literal-string fallback on unknown elements into a proper `EventCallback.Factory.Create(this, MethodName)` wiring, then the runtime maps the event name (`onclick` → `MouseButton1Click`, etc.) to the matching Roblox signal. The explicit `onclick="@(EventCallback.Factory.Create(this, Method))"` form still works if you want it.
 
 ### Hand-written C#
 
@@ -140,7 +140,6 @@ Events follow the same path: an attribute frame whose name starts with `on` is c
 - **Async lifecycle hooks.** `OnInitializedAsync` / `OnParametersSetAsync` / `OnAfterRenderAsync` aren't exposed; the transpiler's async story is its own roadmap item.
 - **`[Inject]` integration with the DI plugin.** The attribute is declared so .razor files using it will compile, but parameter injection at mount time isn't wired yet — components inject services through their constructor for now, same as any DI-resolved class.
 - **`ElementReference`, `@ref`, `@key`, `@bind`.** Not in v1; would each need their own runtime support.
-- **Razor `@on{event}` directive shortcuts.** Razor's automatic event-callback binding only fires on tags it knows as HTML; Roblox tags fall through to literal attributes. Workaround: write event handlers as `onclick="@(EventCallback.Factory.Create(this, MyMethod))"` explicitly. A Razor language extension for `@onMouseButton1Click`-style shortcuts is a follow-up.
 - **Batched re-renders.** `StateHasChanged` re-renders synchronously per call.
 
 ## License
