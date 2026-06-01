@@ -14,6 +14,39 @@ That drops the plugin into `plugins/Blazor/`. Recompile (`roblox-csharp` or `rob
 
 ## Quick start
 
+The same component, written two ways. Pick whichever fits your taste — both produce identical Luau.
+
+### `.razor` (preferred — IDE intellisense, less boilerplate)
+
+```razor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Rendering
+
+<TextButton Size="@(new UDim2(0, 200, 0, 50))"
+            Position="@(new UDim2(0.5f, -100, 0.5f, -25))"
+            BackgroundColor3="@(new Color3(0.2f, 0.4f, 0.8f))"
+            TextColor3="@(new Color3(1f, 1f, 1f))"
+            Text="@($"{Label}: {_count}")"
+            onclick="@(EventCallback.Factory.Create(this, OnClick))">
+</TextButton>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Clicks";
+
+    private int _count = 0;
+
+    private void OnClick()
+    {
+        _count++;
+        StateHasChanged();
+    }
+}
+```
+
+> **Event handler caveat.** Razor's `@onclick="MyHandler"` directive only wires up automatically on elements Razor recognizes as HTML — Roblox UI tag names (`TextButton`, `Frame`, …) aren't in that set, so `@onclick` would emit a literal string attribute instead of an `EventCallback`. Use the explicit `onclick="@(EventCallback.Factory.Create(this, OnClick))"` form shown above and you'll get the right wiring. A `@onMouseButton1Click`-style polish layer is on the roadmap.
+
+### Hand-written C#
+
 ```csharp
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -103,11 +136,11 @@ Events follow the same path: an attribute frame whose name starts with `on` is c
 
 ## What's not in v1
 
-- **`.razor` files.** The runtime and stub API surface are designed for Razor compatibility — `OpenElement`/`AddAttribute`/`CloseElement` are exactly what the Razor compiler emits — but wiring the Razor SDK into the roblox-csharp build pipeline is its own phase. Until then, components are written as plain C# classes overriding `BuildRenderTree`.
 - **Positional diffing.** v1 tears down and rebuilds the Instance tree on every render. Correct, easy to reason about, but wasteful for large UIs. The real Blazor diff (match by sequence number, replace mismatched subtrees) is planned for v1.1 without any change to the public API.
 - **Async lifecycle hooks.** `OnInitializedAsync` / `OnParametersSetAsync` / `OnAfterRenderAsync` aren't exposed; the transpiler's async story is its own roadmap item.
 - **`[Inject]` integration with the DI plugin.** The attribute is declared so .razor files using it will compile, but parameter injection at mount time isn't wired yet — components inject services through their constructor for now, same as any DI-resolved class.
 - **`ElementReference`, `@ref`, `@key`, `@bind`.** Not in v1; would each need their own runtime support.
+- **Razor `@on{event}` directive shortcuts.** Razor's automatic event-callback binding only fires on tags it knows as HTML; Roblox tags fall through to literal attributes. Workaround: write event handlers as `onclick="@(EventCallback.Factory.Create(this, MyMethod))"` explicitly. A Razor language extension for `@onMouseButton1Click`-style shortcuts is a follow-up.
 - **Batched re-renders.** `StateHasChanged` re-renders synchronously per call.
 
 ## License

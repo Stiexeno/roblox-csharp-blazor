@@ -38,5 +38,17 @@ namespace Microsoft.AspNetCore.Components.Rendering
         public void AddContent(int sequence, object textContent) { }
 
         public void AddContent(int sequence, RenderFragment fragment) { }
+
+        // Razor emits this for literal text inside RenderFragments.
+        // Runtime treats it identically to AddContent — the
+        // "markup-vs-content" distinction only matters in HTML Blazor
+        // (for HTML escaping); we just write a string.
+        public void AddMarkupContent(int sequence, string markupContent) { }
+
+        // Razor emits this for component parameter passes — e.g.
+        // <MyComp Foo="bar"/> becomes AddComponentParameter(N, "Foo", "bar").
+        // Distinct from AddAttribute so component params don't accidentally
+        // wire up as element-level event signals in the runtime.
+        public void AddComponentParameter(int sequence, string name, object value) { }
     }
 }

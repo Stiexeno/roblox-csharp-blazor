@@ -89,11 +89,37 @@ function RenderTreeBuilder:AddContent(seq, content)
 	-- expression evaluates to nil and would otherwise force a Text-prop
 	-- write of "nil" on the parent.
 	if content == nil then return end
+	-- A RenderFragment is delegate(RenderTreeBuilder) → void. Razor
+	-- both emits literal `AddContent(N, fragmentExpr)` AND passes
+	-- RenderFragment-typed [Parameter] values through this method,
+	-- so any callable here means "expand the fragment into our frame
+	-- list now" — recurse with self so the fragment's builder ops
+	-- land inline rather than as a stringified function reference.
+	if type(content) == "function" then
+		content(self)
+		return
+	end
 	table.insert(self._frames, {
 		kind = "content",
 		seq = seq,
 		content = content,
 	})
+end
+
+-- Razor emits this for literal text inside RenderFragments (the
+-- markup-vs-content distinction matters in HTML Blazor for escaping;
+-- in our world it's just a string, so we route to AddContent).
+function RenderTreeBuilder:AddMarkupContent(seq, content)
+	self:AddContent(seq, content)
+end
+
+-- Razor emits this for component parameter passes. The runtime
+-- treats it identically to AddAttribute — the reconciler already
+-- routes attribute frames to a component sink when the current
+-- open region is a component, so a parallel "parameter" frame kind
+-- would just be redundant book-keeping.
+function RenderTreeBuilder:AddComponentParameter(seq, name, value)
+	self:AddAttribute(seq, name, value)
 end
 
 function RenderTreeBuilder:GetFrames()
