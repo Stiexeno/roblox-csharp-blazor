@@ -57,6 +57,14 @@ local TWEENABLE_PROPS = {
 -- interpolations that visually fight each other.
 local ActiveTweens = setmetatable({}, { __mode = "k" })
 
+-- Cache of fallback TextLabels we created when ApplyContent was asked
+-- to render text into an Instance that doesn't expose a Text property
+-- (ImageButton, plain Frame, etc.). Keyed by the parent Instance so a
+-- subsequent ApplyContent call updates the existing label's Text in
+-- place rather than parenting a second one over it. Weak keys for the
+-- same reason as ActiveTweens.
+local FallbackTextLabels = setmetatable({}, { __mode = "k" })
+
 -- Curated Blazor-style → Roblox signal mappings. Lowercase keys so
 -- user code can write @onclick exactly like Blazor; the property
 -- branch is case-sensitive so Roblox property names ("BackgroundColor3")
@@ -189,8 +197,13 @@ end
 
 -- Applies a text-content frame. If the instance has a Text property
 -- (TextLabel / TextButton / TextBox), writes to it; otherwise creates
--- a child TextLabel so loose text inside non-text containers still
--- renders rather than being silently dropped.
+-- (or reuses) a child TextLabel so loose text inside non-text containers
+-- still renders rather than being silently dropped.
+--
+-- The fallback TextLabel is cached per parent — a subsequent
+-- ApplyContent call with different content updates the existing label's
+-- Text in place rather than parenting a second TextLabel over the first
+-- (which would leak the old label and render both, overlapping).
 function Elements.ApplyContent(instance, content)
 	local text = tostring(content)
 	-- pcall the read because some Instances raise when an unknown
@@ -201,11 +214,19 @@ function Elements.ApplyContent(instance, content)
 		instance.Text = text
 		return
 	end
+
+	local existing = FallbackTextLabels[instance]
+	if existing and existing.Parent == instance then
+		existing.Text = text
+		return
+	end
+
 	local label = Instance.new("TextLabel")
 	label.Text = text
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.Parent = instance
+	FallbackTextLabels[instance] = label
 end
 
 return Elements
