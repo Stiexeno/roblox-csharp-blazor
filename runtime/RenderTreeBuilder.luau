@@ -75,7 +75,16 @@ end
 -- they appear under. The reconciler resolves that by scanning back
 -- to the nearest unclosed open frame, so we don't track the target
 -- here — keeps the builder purely append-only.
+--
+-- The 2-arg form (no value) is Razor's degraded "minimized attribute"
+-- shape: a literal-empty `Foo=""` on an unknown element compiles down
+-- to `AddAttribute(seq, "Foo")` with no value at all. HTML reads that
+-- as `Foo=true`, but Roblox properties are statically typed — there's
+-- no universal sensible coercion. Skip the frame; the user can pass
+-- an explicit value (`Foo="@(string.Empty)"`) when they want the
+-- attribute applied with an empty payload.
 function RenderTreeBuilder:AddAttribute(seq, name, value)
+	if value == nil then return end
 	table.insert(self._frames, {
 		kind = "attribute",
 		seq = seq,
