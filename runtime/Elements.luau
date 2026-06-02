@@ -11,9 +11,51 @@
 --     anything else strips the `on` prefix and looks up a signal of that
 --     exact name on the instance (so `onMouseWheelForward` → MouseWheelForward).
 --   - Other attribute names are written as Roblox properties verbatim
---     (`Size`, `BackgroundColor3`, `Visible`, etc.).
+--     (`Size`, `BackgroundColor3`, `Visible`, etc.). When the reconciler
+--     marks a write as "animate" (Instance survived from a prior render)
+--     and the property is tweenable, the write is wrapped in a TweenService
+--     tween instead of an instant assignment.
+
+local TweenService = game:GetService("TweenService")
 
 local Elements = {}
+
+-- Default tween used for animated property writes. Quad/Out is a good
+-- default for game UI: fast start, smooth deceleration. The duration
+-- is short enough that rapid input feedback still feels responsive.
+local DEFAULT_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Properties whose writes Roblox can interpolate. Animated writes to
+-- other properties (Text, Visible, LayoutOrder, …) fall back to instant
+-- assignment because TweenService rejects them.
+local TWEENABLE_PROPS = {
+	Position = true,
+	Size = true,
+	AnchorPoint = true,
+	Rotation = true,
+	BackgroundColor3 = true,
+	BackgroundTransparency = true,
+	BorderColor3 = true,
+	BorderSizePixel = true,
+	ImageColor3 = true,
+	ImageTransparency = true,
+	Color = true,
+	TextColor3 = true,
+	TextTransparency = true,
+	TextStrokeColor3 = true,
+	TextStrokeTransparency = true,
+	Transparency = true,
+	Scale = true,            -- UIScale.Scale
+	Thickness = true,        -- UIStroke.Thickness
+}
+
+-- Per-instance map of currently-running tweens, keyed by property name.
+-- Weak keys so the table doesn't pin Instances after the reconciler
+-- destroys them; Roblox will GC the entry once nothing else holds a
+-- reference. Lets us cancel a prior tween before starting a new one
+-- on the same property so consecutive renders don't produce competing
+-- interpolations that visually fight each other.
+local ActiveTweens = setmetatable({}, { __mode = "k" })
 
 -- Curated Blazor-style → Roblox signal mappings. Lowercase keys so
 -- user code can write @onclick exactly like Blazor; the property
@@ -63,11 +105,40 @@ local function classifyAttribute(name)
 	return false, name
 end
 
+-- Starts an animated property write. Cancels any in-flight tween on
+-- the same (instance, property) so the latest target wins instead of
+-- two tweens fighting. Cleared from the bookkeeping table when the
+-- tween completes or is cancelled.
+local function tweenProperty(instance, key, value)
+	local perInstance = ActiveTweens[instance]
+	if perInstance and perInstance[key] then
+		perInstance[key]:Cancel()
+	end
+
+	local tween = TweenService:Create(instance, DEFAULT_TWEEN_INFO, { [key] = value })
+	if perInstance == nil then
+		perInstance = {}
+		ActiveTweens[instance] = perInstance
+	end
+	perInstance[key] = tween
+	tween:Play()
+	tween.Completed:Once(function()
+		if ActiveTweens[instance] and ActiveTweens[instance][key] == tween then
+			ActiveTweens[instance][key] = nil
+		end
+	end)
+end
+
 -- Applies one attribute frame to `instance`. Returns a teardown
 -- function ONLY for events (so the reconciler can Disconnect on
 -- unmount or attribute replacement); property writes return nil
 -- because there's nothing to undo.
-function Elements.ApplyAttribute(instance, attrName, attrValue)
+--
+-- `animate` is true when this Instance survived from the previous
+-- render and the property is eligible for a tweened transition; the
+-- reconciler passes false on initial creation so newly-mounted UI
+-- doesn't fade in from each property's default value.
+function Elements.ApplyAttribute(instance, attrName, attrValue, animate)
 	local isEvent, key = classifyAttribute(attrName)
 	if isEvent then
 		local signal = instance[key]
@@ -87,6 +158,19 @@ function Elements.ApplyAttribute(instance, attrName, attrValue)
 			end
 		end)
 		return function() connection:Disconnect() end
+	end
+
+	if animate and TWEENABLE_PROPS[key] then
+		local ok, err = pcall(tweenProperty, instance, key, attrValue)
+		if ok then
+			return nil
+		end
+		-- Fall through to instant assignment on tween failure (e.g.,
+		-- TweenService rejected the value type). Better to write the
+		-- value than to drop it silently.
+		warn(string.format(
+			"[Blazor] Tween failed for %s.%s, falling back to direct assignment: %s",
+			instance.ClassName, key, tostring(err)))
 	end
 
 	-- Property write. Wrapped in pcall so an unknown property surfaces

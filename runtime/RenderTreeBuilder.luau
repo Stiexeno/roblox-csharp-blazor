@@ -115,10 +115,18 @@ function RenderTreeBuilder:AddContent(seq, content)
 	})
 end
 
--- Razor emits this for literal text inside RenderFragments (the
--- markup-vs-content distinction matters in HTML Blazor for escaping;
--- in our world it's just a string, so we route to AddContent).
+-- Razor emits this for literal text inside RenderFragments and for
+-- pretty-printing whitespace between sibling elements (`<a/>\n\t<b/>`
+-- compiles to AddMarkupContent of "\n\t" between the two opens).
+-- Pure-whitespace content is source-formatting noise — it has no
+-- user-intended rendering and would otherwise force an ApplyContent
+-- write on the parent (creating extra TextLabel children inside
+-- containers like ImageButton that lack a .Text property). Filter
+-- it here. Non-whitespace text still routes to AddContent.
 function RenderTreeBuilder:AddMarkupContent(seq, content)
+	if type(content) == "string" and string.match(content, "^%s*$") ~= nil then
+		return
+	end
 	self:AddContent(seq, content)
 end
 
