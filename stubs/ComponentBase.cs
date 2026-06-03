@@ -2,29 +2,26 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Microsoft.AspNetCore.Components
 {
-    // Base class for user components. Mirrors Blazor's ComponentBase:
-    // override BuildRenderTree to describe UI, call StateHasChanged
-    // when state changes, hook OnInitialized / OnParametersSet /
-    // OnAfterRender for lifecycle.
-    //
-    // Async overloads (OnInitializedAsync etc.) are intentionally not
-    // exposed in v1 — the transpiler's async support story is its
-    // own roadmap item and we'd rather ship a working sync surface
-    // than half-wire async lifecycles.
+    /// <summary>
+    /// Base class for Blazor-style components. Override <see cref="BuildRenderTree"/>
+    /// (or write a <c>.razor</c> file) to describe the UI; call
+    /// <see cref="StateHasChanged"/> after mutating state to trigger a re-render.
+    /// </summary>
     public abstract class ComponentBase : IComponent
     {
+        /// <summary>Lifecycle hook; called once before the first render.</summary>
         protected virtual void OnInitialized() { }
 
+        /// <summary>Lifecycle hook; called every render after parameters apply.</summary>
         protected virtual void OnParametersSet() { }
 
+        /// <summary>Lifecycle hook; called after each render. <paramref name="firstRender"/> is true only on the first one.</summary>
         protected virtual void OnAfterRender(bool firstRender) { }
 
-        // Override to describe the UI for this component. The Razor
-        // compiler generates this override for .razor files; for
-        // hand-written components, override it directly.
+        /// <summary>Override to describe the component's UI by writing frames into <paramref name="builder"/>.</summary>
         protected virtual void BuildRenderTree(RenderTreeBuilder builder) { }
 
-        // Schedules a re-render. Synchronous in v1 — no batching.
+        /// <summary>Signals that state changed; the renderer schedules a re-render of this subtree.</summary>
         protected void StateHasChanged() { }
     }
 }

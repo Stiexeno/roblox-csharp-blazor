@@ -1,11 +1,10 @@
 namespace Microsoft.AspNetCore.Components
 {
-    // EventCallback wraps a handler so the renderer can invoke it
-    // without needing a direct delegate reference. In real Blazor
-    // it's a struct that knows about the receiving component for
-    // automatic StateHasChanged dispatch; our runtime treats it as
-    // an opaque table with an _invoke field, so the stub can stay
-    // a class without changing call-site semantics.
+    /// <summary>
+    /// Typed event handler wired through <see cref="EventCallback.Factory"/> so the
+    /// owning component re-renders when the callback fires. Bind via
+    /// <c>@onclick</c> in Razor, or pass to <c>RenderTreeBuilder.AddAttribute</c>.
+    /// </summary>
     public class EventCallback
     {
         public static readonly EventCallbackFactory Factory = new EventCallbackFactory();
@@ -14,6 +13,10 @@ namespace Microsoft.AspNetCore.Components
         public void InvokeAsync(object arg) { }
     }
 
+    /// <summary>
+    /// Generic variant of <see cref="EventCallback"/> for callbacks that carry
+    /// a typed payload.
+    /// </summary>
     public class EventCallback<TValue>
     {
         public void InvokeAsync(TValue arg) { }

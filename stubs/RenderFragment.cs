@@ -2,11 +2,15 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Microsoft.AspNetCore.Components
 {
-    // Delegate types Razor uses to model "child content" — a piece
-    // of UI authored at the use-site of a component, passed in as
-    // a parameter. <MyComp>text</MyComp> compiles to assigning a
-    // RenderFragment to the ChildContent parameter.
+    /// <summary>
+    /// A piece of UI written as a delegate over <see cref="RenderTreeBuilder"/>.
+    /// Used to pass child content into a component, e.g. <c>ChildContent</c> parameters.
+    /// </summary>
     public delegate void RenderFragment(RenderTreeBuilder builder);
 
+    /// <summary>
+    /// Parameterized render fragment — bind a value, get back a
+    /// <see cref="RenderFragment"/> that closes over it.
+    /// </summary>
     public delegate RenderFragment RenderFragment<TValue>(TValue value);
 }

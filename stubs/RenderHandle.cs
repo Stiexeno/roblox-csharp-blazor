@@ -1,11 +1,15 @@
 namespace Blazor
 {
-    // Opaque handle returned by Renderer.Mount. The runtime drives
-    // re-renders internally (via StateHasChanged); the handle's only
-    // consumer-facing job is Unmount, which detaches everything
-    // cleanly — used by hot-reload and test harnesses.
+    /// <summary>
+    /// Disposer for a mounted component tree. Hold onto it for as long as the
+    /// UI should live; call <see cref="Unmount"/> to tear down.
+    /// </summary>
     public class RenderHandle
     {
+        /// <summary>
+        /// Destroys the rendered Instance subtree and disconnects every event
+        /// subscription wired during render.
+        /// </summary>
         public void Unmount() { }
     }
 }

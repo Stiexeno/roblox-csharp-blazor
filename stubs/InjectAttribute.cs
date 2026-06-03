@@ -2,10 +2,11 @@ using System;
 
 namespace Microsoft.AspNetCore.Components
 {
-    // Marks a public property as DI-injected when the component is
-    // mounted. Not wired in v1 — listed here so .razor files using
-    // [Inject] compile; runtime support arrives once the Blazor
-    // plugin and the DI plugin agree on a handshake.
+    /// <summary>
+    /// Marks a property to be resolved from the DI container at mount time.
+    /// Declared so <c>.razor</c> files using <c>[Inject]</c> compile; wiring
+    /// is deferred until a future release.
+    /// </summary>
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
     public class InjectAttribute : Attribute
     {

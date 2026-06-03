@@ -1,12 +1,10 @@
 namespace Microsoft.AspNetCore.Components
 {
-    // C# stubs for the Blazor plugin. Bodies are never executed —
-    // the compiler routes references to these types onto the Lua
-    // runtime under ReplicatedStorage.Plugins.Blazor.
-    //
-    // Namespaces match real Blazor (Microsoft.AspNetCore.Components
-    // and .Rendering) so the Razor SDK's generated code resolves
-    // against these stubs without modification when we wire it in.
+    /// <summary>
+    /// Marker every renderable Blazor component implements. Inherit
+    /// <see cref="ComponentBase"/> instead of implementing this directly
+    /// unless you need to bypass the standard lifecycle.
+    /// </summary>
     public interface IComponent
     {
     }
