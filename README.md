@@ -112,6 +112,7 @@ public class UIInstaller : ClientInstaller
 | `OpenComponent<T>(seq)` / `CloseComponent()` | Open/close a child component region. Attributes between the calls become its parameters. |
 | `AddAttribute(seq, name, value)` | Set a property or wire an event on the current open region. |
 | `AddContent(seq, content)` | Write text content (sets `.Text` if available, else creates a `TextLabel` child). |
+| `AddElementReferenceCapture(seq, action)` | Captures the underlying Roblox Instance into an `ElementReference`. Razor's `@ref="field"` emits this. |
 
 Attribute names starting with `on` (case-insensitive) are treated as events. Curated mappings include `onclick` → `MouseButton1Click`, `onmouseenter` → `MouseEnter`, `onfocus` → `Focused`, etc. Names like `onMouseWheelForward` pass through verbatim as signal names, so any Roblox event is reachable.
 
@@ -124,22 +125,63 @@ Attribute names starting with `on` (case-insensitive) are treated as events. Cur
 
 ### `[Parameter]`
 
-Marks a public property as a component parameter. The parent component (or `.razor` markup, once SDK support lands) writes these on each render before `OnParametersSet` fires.
+Marks a public property as a component parameter. The parent component (or `.razor` markup) writes these on each render before `OnParametersSet` fires.
+
+### `ElementReference` and `@ref`
+
+Capture the underlying Roblox Instance from a rendered element and reach it imperatively — for TweenService animations, physics constraints, focus management, or anything else that needs a handle the declarative tree doesn't expose:
+
+```razor
+@using Microsoft.AspNetCore.Components
+
+<Frame @ref="_panel"
+       Size="@(new UDim2(0, 200, 0, 80))"
+       BackgroundColor3="@(new Color3(0.15f, 0.15f, 0.18f))" />
+
+@code {
+    private ElementReference _panel;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+        TweenService.Create(
+            _panel.Instance,
+            new TweenInfo(0.6f, EasingStyle.Back, EasingDirection.Out),
+            new { Position = new UDim2(0.5f, -100, 0.5f, -40) }
+        ).Play();
+    }
+}
+```
+
+The capture fires after the Reconciler materializes (or reuses) the Instance, so `_panel.Instance` is set before `OnAfterRender` runs. On the first render it points at a freshly-created Instance; on subsequent renders that preserve the same element, it still points at the same Instance (the reconciler keeps it alive), so in-flight tweens survive state changes.
+
+## Animations
+
+Two paths, complementary:
+
+**Declarative.** Tweenable properties (`Position`, `Size`, `BackgroundColor3`, `Rotation`, `Transparency`, `Scale`, etc.) tween automatically when their value changes across renders. Bind to state and call `StateHasChanged`:
+
+```razor
+<Frame Size="@(_expanded ? Big : Small)"
+       BackgroundColor3="@(_hovered ? Highlight : Base)" />
+```
+
+A re-render where only `_expanded` flipped does **not** rebuild the Frame — the Reconciler diffs attribute values, only writes the ones that changed, and routes those writes through `TweenService:Create` (default `TweenInfo(0.18, Quad, Out)`). Setting a property to the same value is a no-op; consecutive renders that change the same property cancel the in-flight tween and start a new one toward the latest target.
+
+**Imperative.** For custom easing, looped tweens, or anything outside the eight-or-so curated tweenable properties, grab an `ElementReference` (`@ref`) and call `TweenService` directly inside `OnAfterRender`. Use a `firstRender` guard to wire one-shot mount animations; track signal connections on the component if you need to detach them on unmount.
 
 ## How it works
 
-The Razor compiler — and hand-written `BuildRenderTree` overrides — emit a flat sequence of "frames" via `RenderTreeBuilder`: open-element, attributes, content, close-element. The Luau runtime walks that sequence as a stack and produces a Roblox Instance tree under the parent you mounted into.
-
-Events follow the same path: an attribute frame whose name starts with `on` is connected to the matching Roblox signal (`MouseButton1Click`, `Focused`, etc.) and disconnected on the next render. Component frames recurse — `OpenComponent<MyChild>` accumulates parameters, then on `CloseComponent` the child is mounted with its own `RenderHandle`, so its `StateHasChanged` only re-renders its own subtree.
+The Razor compiler — and hand-written `BuildRenderTree` overrides — emit a flat sequence of "frames" via `RenderTreeBuilder`: open-element, attributes, content, close-element, ref-capture. The Luau runtime walks that sequence into a tree and reconciles it against the previous render's tree by walking child arrays in parallel, matching positions by `(kind, element name, component type)`. Matches reuse the existing Roblox Instance and diff attributes (tween-on-write for animatable properties; reuse the existing signal connection if the handler value is referentially unchanged). Mismatches destroy the old subtree and create the new one at that position. Component frames recurse: each child component owns its own `RenderHandle` and reconciler state, so a parent re-render forwards parameters and lets the child diff its own subtree.
 
 `Renderer.Mount` is the public entry. It constructs the component, attaches a `RenderHandle` pointing at your parent Instance, and drives the first render. The handle can be torn down with `Unmount` for hot reload or test cleanup.
 
 ## What's not in v1
 
-- **Positional diffing.** v1 tears down and rebuilds the Instance tree on every render. Correct, easy to reason about, but wasteful for large UIs. The real Blazor diff (match by sequence number, replace mismatched subtrees) is planned for v1.1 without any change to the public API.
 - **Async lifecycle hooks.** `OnInitializedAsync` / `OnParametersSetAsync` / `OnAfterRenderAsync` aren't exposed; the transpiler's async story is its own roadmap item.
 - **`[Inject]` integration with the DI plugin.** The attribute is declared so .razor files using it will compile, but parameter injection at mount time isn't wired yet — components inject services through their constructor for now, same as any DI-resolved class.
-- **`ElementReference`, `@ref`, `@key`, `@bind`.** Not in v1; would each need their own runtime support.
+- **Component refs.** `@ref` on a child component (`AddComponentReferenceCapture`) isn't wired yet; only element refs work.
+- **`@key`, `@bind`.** Not in v1; each needs its own runtime support.
 - **Batched re-renders.** `StateHasChanged` re-renders synchronously per call.
 
 ## License

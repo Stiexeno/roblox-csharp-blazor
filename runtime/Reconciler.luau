@@ -121,12 +121,34 @@ BuildTree = function(frames)
 				})
 			end
 
+		elseif frame.kind == "ref" then
+			-- Captures attach to whichever element they appear under.
+			-- Refs on components route through AddComponentReferenceCapture
+			-- (not implemented in v1); a ref frame on a component is
+			-- silently dropped so a stray Razor emission doesn't crash.
+			if top.kind == "element" then
+				top.refs = top.refs or {}
+				table.insert(top.refs, frame.capture)
+			end
+
 		elseif frame.kind == "end" then
 			table.remove(stack)
 		end
 	end
 
 	return root
+end
+
+-- Invokes every ref capture for an element with an ElementReference
+-- pointing at its Instance. Same shape the C# struct compiles to (a
+-- table with an Instance field), so the user's OnAfterRender can read
+-- ref.Instance and pass it to TweenService directly.
+local function InvokeRefs(node)
+	if node.refs == nil then return end
+	local ref = { Instance = node.instance }
+	for _, capture in ipairs(node.refs) do
+		capture(ref)
+	end
 end
 
 -- Recursive child-array diff. Walks positions 1..max(#old, #new),
@@ -169,6 +191,7 @@ ReconcileNode = function(oldNode, newNode, parentInstance, mountChild, refreshCh
 		-- attributes whose value actually changed.
 		newNode.teardowns = ApplyAttributeDiff(
 			newNode.instance, oldNode.attrs, newNode.attrs, oldNode.teardowns)
+		InvokeRefs(newNode)
 		ReconcileChildren(oldNode.children, newNode.children, newNode.instance, mountChild, refreshChild)
 
 	elseif newNode.kind == "component" then
@@ -193,6 +216,7 @@ CreateNode = function(node, parentInstance, mountChild, refreshChild)
 		node.instance = Elements.Create(node.name)
 		node.instance.Parent = parentInstance
 		node.teardowns = ApplyAttributes(node.instance, node.attrs)
+		InvokeRefs(node)
 		for _, child in ipairs(node.children) do
 			CreateNode(child, node.instance, mountChild, refreshChild)
 		end

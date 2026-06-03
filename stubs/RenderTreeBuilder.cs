@@ -1,3 +1,5 @@
+using System;
+
 namespace Microsoft.AspNetCore.Components.Rendering
 {
     /// <summary>
@@ -52,5 +54,14 @@ namespace Microsoft.AspNetCore.Components.Rendering
 
         /// <summary>Sets a named parameter on the currently open child component.</summary>
         public void AddComponentParameter(int sequence, string name, object value) { }
+
+        /// <summary>
+        /// Captures a reference to the Roblox Instance backing the currently
+        /// open element. <paramref name="elementReferenceCaptureAction"/> is
+        /// invoked with a populated <see cref="ElementReference"/> after the
+        /// Instance is materialized, on every render the element survives.
+        /// Razor's <c>@ref="field"</c> directive emits this call.
+        /// </summary>
+        public void AddElementReferenceCapture(int sequence, Action<ElementReference> elementReferenceCaptureAction) { }
     }
 }

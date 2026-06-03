@@ -13,6 +13,7 @@
 --   { kind = "component", seq, componentType }
 --   { kind = "attribute", seq, name, value }
 --   { kind = "content",   seq, content }
+--   { kind = "ref",       seq, capture }
 --   { kind = "end" }
 --
 -- The frame list is flat; opens and closes are paired by stack
@@ -137,6 +138,21 @@ end
 -- would just be redundant book-keeping.
 function RenderTreeBuilder:AddComponentParameter(seq, name, value)
 	self:AddAttribute(seq, name, value)
+end
+
+-- Razor emits this for `@ref="field"` on a normal element. The capture
+-- callback fires after the Reconciler materializes (or reuses) the
+-- Instance, with an ElementReference populated to that Instance — the
+-- user's OnAfterRender hook then reads .Instance and hands it to
+-- TweenService, physics constraints, or whatever else needs the
+-- underlying Roblox object.
+function RenderTreeBuilder:AddElementReferenceCapture(seq, capture)
+	if capture == nil then return end
+	table.insert(self._frames, {
+		kind = "ref",
+		seq = seq,
+		capture = capture,
+	})
 end
 
 function RenderTreeBuilder:GetFrames()
