@@ -155,6 +155,23 @@ Capture the underlying Roblox Instance from a rendered element and reach it impe
 
 The capture fires after the Reconciler materializes (or reuses) the Instance, so `_panel.Instance` is set before `OnAfterRender` runs. On the first render it points at a freshly-created Instance; on subsequent renders that preserve the same element, it still points at the same Instance (the reconciler keeps it alive), so in-flight tweens survive state changes.
 
+**Typed `@ref` fields.** Instead of wrapping in `ElementReference`, you can declare the ref field as the concrete Roblox Instance class directly:
+
+```razor
+<UIScale @ref="_scale" Scale="@(1f)" />
+
+@code {
+    private UIScale _scale;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        _scale.Scale = 0.92f;
+    }
+}
+```
+
+The plugin's transpiler hook (`BlazorElementReferenceOverride` in `extension/`) detects assignments where the RHS is an `ElementReference` and the LHS is an `Instance` subclass — Razor's own `@ref` expansion is the only natural source of that pattern — and unwraps `.Instance` during lowering. The Lua output sets `self._scale = val.Instance` directly, so user code sees a typed Roblox handle with no wrapper indirection.
+
 ## Animations
 
 Two paths, complementary:
