@@ -86,6 +86,33 @@ end
 -- attribute applied with an empty payload.
 function RenderTreeBuilder:AddAttribute(seq, name, value)
 	if value == nil then return end
+	-- ChildContent on an element frame: Razor emits this whenever a
+	-- tag has child markup AND the tag's class has a `[Parameter]
+	-- RenderFragment ChildContent` slot — which the Blazor plugin's
+	-- Tags shims (ComponentBase) inherit. After the BlazorTagElement
+	-- transpiler override rewrites `OpenComponent<Tags.X>` to
+	-- `OpenElement("X")`, the trailing `AddAttribute(_, "ChildContent",
+	-- fn)` would otherwise try to set a non-existent `ChildContent`
+	-- property on the Roblox Instance. Inline-invoke the fragment so
+	-- its OpenElement / AddAttribute calls land as children of the
+	-- enclosing element — the same effect a real component achieves by
+	-- invoking ChildContent(builder) inside its own BuildRenderTree.
+	if name == "ChildContent" and type(value) == "function" then
+		local top = self._frames[#self._frames]
+		-- Walk back over any pending attribute frames to find the open
+		-- frame they belong to.
+		for i = #self._frames, 1, -1 do
+			local f = self._frames[i]
+			if f.kind == "element" or f.kind == "component" then
+				top = f
+				break
+			end
+		end
+		if top and top.kind == "element" then
+			value(self)
+			return
+		end
+	end
 	table.insert(self._frames, {
 		kind = "attribute",
 		seq = seq,
