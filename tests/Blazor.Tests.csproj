@@ -14,7 +14,7 @@
 		the same convention every plugin uses for its IDE setup.
 	-->
 	<ItemGroup>
-		<Compile Include="..\extension\**\*.cs" LinkBase="extension" />
+		<Compile Include="..\extension\**\*.cs" Exclude="..\extension\obj\**;..\extension\bin\**" LinkBase="extension" />
 	</ItemGroup>
 
 	<ItemGroup>

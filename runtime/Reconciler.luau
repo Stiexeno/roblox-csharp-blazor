@@ -62,11 +62,12 @@ end
 
 -- Tears down a tree completely. Used when the owning component is
 -- unmounted; Reconcile handles partial teardown internally during
--- normal renders.
-function Reconciler.Teardown(tree)
+-- normal renders. `rootInstance` is the Instance the tree rendered
+-- under, so root-level content nodes can clear what they wrote there.
+function Reconciler.Teardown(tree, rootInstance)
 	if tree == nil then return end
 	for _, child in ipairs(tree.children) do
-		DestroyNode(child)
+		DestroyNode(child, rootInstance)
 	end
 end
 
@@ -163,7 +164,7 @@ end
 -- Reconciles a single pair (either may be nil).
 ReconcileNode = function(oldNode, newNode, parentInstance, mountChild, refreshChild)
 	if newNode == nil then
-		DestroyNode(oldNode)
+		DestroyNode(oldNode, parentInstance)
 		return
 	end
 	if oldNode == nil then
@@ -176,7 +177,7 @@ ReconcileNode = function(oldNode, newNode, parentInstance, mountChild, refreshCh
 	if oldNode.kind ~= newNode.kind
 		or oldNode.name ~= newNode.name
 		or oldNode.componentType ~= newNode.componentType then
-		DestroyNode(oldNode)
+		DestroyNode(oldNode, parentInstance)
 		CreateNode(newNode, parentInstance, mountChild, refreshChild)
 		return
 	end
@@ -232,12 +233,14 @@ end
 -- Tears down a single node and everything below it. Children are
 -- visited first so nested event teardowns fire and child components
 -- Unmount cleanly — Roblox's Destroy cascade reaps Instance descendants
--- but doesn't invoke our lifecycle hooks.
-DestroyNode = function(node)
+-- but doesn't invoke our lifecycle hooks. `parentInstance` is the
+-- Instance the node rendered into; content nodes need it because the
+-- content they wrote lives on the parent, not on a node-owned Instance.
+DestroyNode = function(node, parentInstance)
 	if node == nil then return end
 	if node.children then
 		for _, child in ipairs(node.children) do
-			DestroyNode(child)
+			DestroyNode(child, node.instance or parentInstance)
 		end
 	end
 	if node.teardowns then
@@ -251,6 +254,8 @@ DestroyNode = function(node)
 		node.instance:Destroy()
 	elseif node.kind == "component" and node.childHandle then
 		node.childHandle:Unmount()
+	elseif node.kind == "content" and parentInstance then
+		Elements.RemoveContent(parentInstance)
 	end
 end
 

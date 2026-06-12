@@ -149,11 +149,15 @@ end
 function Elements.ApplyAttribute(instance, attrName, attrValue, animate)
 	local isEvent, key = classifyAttribute(attrName)
 	if isEvent then
-		local signal = instance[key]
-		if signal == nil then
-			error(string.format(
-				"[Blazor] %s has no signal %q (from attribute %q)",
-				instance.ClassName, key, attrName), 2)
+		-- Indexing an invalid member name on an Instance throws, so the
+		-- lookup is pcall-wrapped: a bad event name warns and skips the
+		-- attribute instead of crashing the whole reconcile pass.
+		local ok, signal = pcall(function() return instance[key] end)
+		if not ok or signal == nil then
+			warn(string.format(
+				"[Blazor] %s has no signal %q (from attribute %q) — handler not connected",
+				instance.ClassName, key, attrName))
+			return nil
 		end
 		local connection = signal:Connect(function(...)
 			-- attrValue is either a raw function or an EventCallback
@@ -227,6 +231,26 @@ function Elements.ApplyContent(instance, content)
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.Parent = instance
 	FallbackTextLabels[instance] = label
+end
+
+-- Inverse of ApplyContent. Called by the reconciler when a content
+-- node is removed from the tree while its parent element survives —
+-- without this, conditional text removed in a re-render would stick
+-- around on the parent's Text (or as an orphaned fallback TextLabel).
+-- Mirrors ApplyContent's two paths: clear the Text property when the
+-- instance has one, otherwise destroy the cached fallback label.
+function Elements.RemoveContent(instance)
+	local hasText = pcall(function() return instance.Text end)
+	if hasText then
+		instance.Text = ""
+		return
+	end
+
+	local existing = FallbackTextLabels[instance]
+	if existing then
+		FallbackTextLabels[instance] = nil
+		existing:Destroy()
+	end
 end
 
 return Elements

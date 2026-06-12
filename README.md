@@ -1,31 +1,27 @@
 # roblox-csharp-blazor
 
-Blazor-style UI for Roblox, packaged as a [roblox-csharp](https://github.com/Stiexeno/roblox-csharp) plugin. Write components as C# classes (or, eventually, `.razor` files), describe UI declaratively, and let the runtime reconcile the result into Roblox Instance trees — so your UI lives in source control alongside the rest of your game code.
+Blazor-style UI for Roblox: write components as `.razor` files or C# classes, and a Luau runtime reconciles the render tree into Roblox Instances.
 
 ## Install
-
-From your roblox-csharp project root:
 
 ```sh
 roblox-csharp plugin add Stiexeno/roblox-csharp-blazor
 ```
 
-That drops the plugin into `plugins/Blazor/`. Recompile (`roblox-csharp` or `roblox-csharp dev`) and the runtime mounts at `ReplicatedStorage.Plugins.Blazor`.
+Drops into `plugins/Blazor/`; the runtime mounts at `ReplicatedStorage.Plugins.Blazor`.
+
+## Requirements
+
+- roblox-csharp **0.1.0-alpha.52+** (declared as `minTranspilerVersion` in the manifest; loads the prebuilt `extension.dll`).
+- **RobloxApi plugin** — `ElementReference.Instance` and typed `@ref` fields are `RobloxCSharp.RobloxApi.Instance` types.
+- **DI plugin** — `Renderer.Mount` requires an `IInstantiator` (`DependencyInjection`); components are constructed through it so ctor injection works.
 
 ## Quick start
 
-The same component, written two ways. Pick whichever fits your taste — both produce identical Luau.
-
-### `.razor` (preferred — IDE intellisense, less boilerplate)
-
 ```razor
 @using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Rendering
 
 <TextButton Size="@(new UDim2(0, 200, 0, 50))"
-            Position="@(new UDim2(0.5f, -100, 0.5f, -25))"
-            BackgroundColor3="@(new Color3(0.2f, 0.4f, 0.8f))"
-            TextColor3="@(new Color3(1f, 1f, 1f))"
             Text="@($"{Label}: {_count}")"
             @onclick="OnClick">
 </TextButton>
@@ -43,53 +39,15 @@ The same component, written two ways. Pick whichever fits your taste — both pr
 }
 ```
 
-> **Event handlers.** `@onclick`, `@onmouseenter`, `@onfocus`, and any `@onXxx` directive work transparently on Roblox UI tags — the transpiler rewrites Razor's literal-string fallback on unknown elements into a proper `EventCallback.Factory.Create(this, MethodName)` wiring, then the runtime maps the event name (`onclick` → `MouseButton1Click`, etc.) to the matching Roblox signal. The explicit `onclick="@(EventCallback.Factory.Create(this, Method))"` form still works if you want it.
+Hand-written `BuildRenderTree(RenderTreeBuilder)` overrides produce the same frames; `OpenElement(seq, "TextButton")` / `AddAttribute` / `CloseElement`.
 
-### Hand-written C#
-
-```csharp
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-using Blazor;
-
-public class Counter : ComponentBase
-{
-    [Parameter] public string Label { get; set; } = "Clicks";
-
-    private int _count = 0;
-
-    protected override void BuildRenderTree(RenderTreeBuilder __builder)
-    {
-        __builder.OpenElement(0, "TextButton");
-        __builder.AddAttribute(1, "Size", new UDim2(0, 200, 0, 50));
-        __builder.AddAttribute(2, "Position", new UDim2(0.5f, -100, 0.5f, -25));
-        __builder.AddAttribute(3, "Text", $"{Label}: {_count}");
-        __builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, OnClick));
-        __builder.CloseElement();
-    }
-
-    private void OnClick()
-    {
-        _count++;
-        StateHasChanged();
-    }
-}
-```
-
-Mount from a client bootstrap (works naturally with the DI plugin's `ClientInstaller`):
+Mount from client code (instantiator ctor-injected via the DI plugin):
 
 ```csharp
-public class UIInstaller : ClientInstaller
-{
-    public UIInstaller(Container container) : base(container) { }
-
-    public override void InstallBindings()
-    {
-        var screen = new Instance("ScreenGui");
-        screen.Parent = LocalPlayer.PlayerGui;
-        Renderer.Mount<Counter>(screen);
-    }
-}
+var screen = new Instance("ScreenGui");
+screen.Parent = LocalPlayer.PlayerGui;
+RenderHandle handle = Renderer.Mount<Counter>(screen, _instantiator);
+// later: handle.Unmount();
 ```
 
 ## API surface
@@ -98,108 +56,58 @@ public class UIInstaller : ClientInstaller
 
 | Member | Purpose |
 |---|---|
-| `BuildRenderTree(RenderTreeBuilder)` | Override to describe the component's UI. |
-| `StateHasChanged()` | Trigger a re-render after state changes. |
-| `OnInitialized()` | Lifecycle hook; called once before the first render. |
-| `OnParametersSet()` | Lifecycle hook; called every render after parameters apply. |
-| `OnAfterRender(firstRender)` | Lifecycle hook; called after each render. |
+| `BuildRenderTree(RenderTreeBuilder)` | Override to describe UI. |
+| `StateHasChanged()` | Re-render synchronously. No-op before mount or inside a render. |
+| `OnInitialized()` | Once, before the first render. |
+| `OnParametersSet()` | Every render (including self-triggered `StateHasChanged` renders — diverges from Blazor, which only calls it on parameter writes). |
+| `OnAfterRender(firstRender)` | After each render. |
 
 ### `RenderTreeBuilder`
 
-| Method | Purpose |
-|---|---|
-| `OpenElement(seq, name)` / `CloseElement()` | Open/close a Roblox Instance region. `name` is the class name (`Frame`, `TextLabel`, `ImageButton`, etc.). |
-| `OpenComponent<T>(seq)` / `CloseComponent()` | Open/close a child component region. Attributes between the calls become its parameters. |
-| `AddAttribute(seq, name, value)` | Set a property or wire an event on the current open region. |
-| `AddContent(seq, content)` | Write text content (sets `.Text` if available, else creates a `TextLabel` child). |
-| `AddElementReferenceCapture(seq, action)` | Captures the underlying Roblox Instance into an `ElementReference`. Razor's `@ref="field"` emits this. |
+`OpenElement` / `CloseElement`, `OpenComponent<T>` / `CloseComponent`, `AddAttribute`, `AddContent`, `AddMarkupContent` (whitespace-only content is dropped), `AddComponentParameter` (alias of `AddAttribute`), `AddElementReferenceCapture`.
 
-Attribute names starting with `on` (case-insensitive) are treated as events. Curated mappings include `onclick` → `MouseButton1Click`, `onmouseenter` → `MouseEnter`, `onfocus` → `Focused`, etc. Names like `onMouseWheelForward` pass through verbatim as signal names, so any Roblox event is reachable.
+- Element names go to `Instance.new` verbatim.
+- Curated event mappings (case-insensitive): `onclick`→`MouseButton1Click`, `onrightclick`, `onmousedown`/`onmouseup`, `onmouseenter`/`onmouseleave`, `onactivated`, `onfocus`→`Focused`, `onblur`→`FocusLost`, `oninputbegan`/`oninputended`. Beyond those, `on` + an uppercase letter passes through as a literal signal name (`onMouseWheelForward` → `MouseWheelForward`).
+- Other attribute names are written as Roblox properties verbatim.
 
-### `Renderer`
+### `Renderer` / `RenderHandle`
 
 | Method | Purpose |
 |---|---|
-| `Renderer.Mount<TComponent>(parentInstance)` | Instantiate and render `TComponent` under a Roblox Instance. Returns a `RenderHandle`. |
-| `handle.Unmount()` | Tear down the rendered tree and disconnect all event subscriptions. |
+| `Renderer.Mount<TComponent>(parentInstance, instantiator)` | Construct via the instantiator, render under `parentInstance`, return a `RenderHandle`. |
+| `handle.Unmount()` | Destroy the rendered Instances, disconnect render-wired events, and detach the component — `StateHasChanged` after unmount is a no-op. |
 
-### `[Parameter]`
+### `EventCallback`
 
-Marks a public property as a component parameter. The parent component (or `.razor` markup) writes these on each render before `OnParametersSet` fires.
+`[Parameter] public EventCallback OnSomething { get; set; }` on a child, invoked via `OnSomething.InvokeAsync()` / `InvokeAsync(arg)`; the parent wires it with `@onsomething="Handler"` or `EventCallback.Factory.Create(this, Handler)`. Callbacks are cached per (receiver, method), so the same handler passed on consecutive renders is the same value — event connections are reused instead of churning each re-render.
+
+### Razor tag shims
+
+PascalCase Roblox UI tags (`TextButton`, `TextLabel`, `ScrollingFrame`, `ImageButton`, `UICorner`, `UIListLayout`, …) are declared as empty component shims in `RobloxCSharp.Blazor.Tags`; the transpiler extension rewrites `OpenComponent<Tags.X>` back to `OpenElement("X")`, so no component layer exists at runtime. Use `<Rect>` instead of `<Frame>` to dodge Rider's obsolete-HTML strikethrough — it renders a Roblox `Frame`. A plain `<Frame>` tag still works via Razor's unknown-element fallback.
+
+`@onclick="Method"` on these tags is rewritten by the transpiler into `EventCallback.Factory.Create(this, Method)`; the explicit form also works.
 
 ### `ElementReference` and `@ref`
 
-Capture the underlying Roblox Instance from a rendered element and reach it imperatively — for TweenService animations, physics constraints, focus management, or anything else that needs a handle the declarative tree doesn't expose:
+`@ref="_field"` captures the backing Instance after each render. Two field shapes:
 
-```razor
-@using Microsoft.AspNetCore.Components
+- `private ElementReference _panel;` — read `_panel.Instance` in `OnAfterRender`.
+- A concrete Instance class (`private UIScale _scale;`) — the `BlazorElementReferenceOverride` extension unwraps `.Instance` during lowering, so the field holds the typed Roblox handle directly.
 
-<Frame @ref="_panel"
-       Size="@(new UDim2(0, 200, 0, 80))"
-       BackgroundColor3="@(new Color3(0.15f, 0.15f, 0.18f))" />
+## Reconciliation and animation
 
-@code {
-    private ElementReference _panel;
+Diffing is **positional** per child array, matched by kind + element name / component type; there is no `@key`. Reordering children replaces the moved subtrees. Matched elements reuse their Instance and only changed attributes are written; tweenable properties (`Position`, `Size`, `BackgroundColor3`, `Rotation`, transparencies, `Scale`, `Thickness`, …) animate via `TweenService` (`TweenInfo(0.18, Quad, Out)`), with in-flight tweens cancelled when the target changes again. First-mount writes are instant. Child components own their subtree: a parent re-render forwards parameters and the child diffs locally.
 
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (!firstRender) return;
-        TweenService.Create(
-            _panel.Instance,
-            new TweenInfo(0.6f, EasingStyle.Back, EasingDirection.Out),
-            new { Position = new UDim2(0.5f, -100, 0.5f, -40) }
-        ).Play();
-    }
-}
-```
+Event connections are reused when the attribute value is referentially identical across renders — method-group handlers qualify via the `EventCallback` cache. Inline lambdas (`@onclick="() => ..."`) are a fresh value each render and still reconnect.
 
-The capture fires after the Reconciler materializes (or reuses) the Instance, so `_panel.Instance` is set before `OnAfterRender` runs. On the first render it points at a freshly-created Instance; on subsequent renders that preserve the same element, it still points at the same Instance (the reconciler keeps it alive), so in-flight tweens survive state changes.
+## Not in v1
 
-**Typed `@ref` fields.** Instead of wrapping in `ElementReference`, you can declare the ref field as the concrete Roblox Instance class directly:
-
-```razor
-<UIScale @ref="_scale" Scale="@(1f)" />
-
-@code {
-    private UIScale _scale;
-
-    protected override void OnAfterRender(bool firstRender)
-    {
-        _scale.Scale = 0.92f;
-    }
-}
-```
-
-The plugin's transpiler hook (`BlazorElementReferenceOverride` in `extension/`) detects assignments where the RHS is an `ElementReference` and the LHS is an `Instance` subclass — Razor's own `@ref` expansion is the only natural source of that pattern — and unwraps `.Instance` during lowering. The Lua output sets `self._scale = val.Instance` directly, so user code sees a typed Roblox handle with no wrapper indirection.
-
-## Animations
-
-Two paths, complementary:
-
-**Declarative.** Tweenable properties (`Position`, `Size`, `BackgroundColor3`, `Rotation`, `Transparency`, `Scale`, etc.) tween automatically when their value changes across renders. Bind to state and call `StateHasChanged`:
-
-```razor
-<Frame Size="@(_expanded ? Big : Small)"
-       BackgroundColor3="@(_hovered ? Highlight : Base)" />
-```
-
-A re-render where only `_expanded` flipped does **not** rebuild the Frame — the Reconciler diffs attribute values, only writes the ones that changed, and routes those writes through `TweenService:Create` (default `TweenInfo(0.18, Quad, Out)`). Setting a property to the same value is a no-op; consecutive renders that change the same property cancel the in-flight tween and start a new one toward the latest target.
-
-**Imperative.** For custom easing, looped tweens, or anything outside the eight-or-so curated tweenable properties, grab an `ElementReference` (`@ref`) and call `TweenService` directly inside `OnAfterRender`. Use a `firstRender` guard to wire one-shot mount animations; track signal connections on the component if you need to detach them on unmount.
-
-## How it works
-
-The Razor compiler — and hand-written `BuildRenderTree` overrides — emit a flat sequence of "frames" via `RenderTreeBuilder`: open-element, attributes, content, close-element, ref-capture. The Luau runtime walks that sequence into a tree and reconciles it against the previous render's tree by walking child arrays in parallel, matching positions by `(kind, element name, component type)`. Matches reuse the existing Roblox Instance and diff attributes (tween-on-write for animatable properties; reuse the existing signal connection if the handler value is referentially unchanged). Mismatches destroy the old subtree and create the new one at that position. Component frames recurse: each child component owns its own `RenderHandle` and reconciler state, so a parent re-render forwards parameters and lets the child diff its own subtree.
-
-`Renderer.Mount` is the public entry. It constructs the component, attaches a `RenderHandle` pointing at your parent Instance, and drives the first render. The handle can be torn down with `Unmount` for hot reload or test cleanup.
-
-## What's not in v1
-
-- **Async lifecycle hooks.** `OnInitializedAsync` / `OnParametersSetAsync` / `OnAfterRenderAsync` aren't exposed; the transpiler's async story is its own roadmap item.
-- **`[Inject]` integration with the DI plugin.** The attribute is declared so .razor files using it will compile, but parameter injection at mount time isn't wired yet — components inject services through their constructor for now, same as any DI-resolved class.
-- **Component refs.** `@ref` on a child component (`AddComponentReferenceCapture`) isn't wired yet; only element refs work.
-- **`@key`, `@bind`.** Not in v1; each needs its own runtime support.
-- **Batched re-renders.** `StateHasChanged` re-renders synchronously per call.
+- **Async lifecycle hooks** (`OnInitializedAsync` etc.).
+- **`[Inject]`** — declared so `.razor` files compile; not wired. Use ctor injection.
+- **Component refs** (`@ref` on a child component) — silently dropped.
+- **`@key`, `@bind`.**
+- **Batched re-renders** — every `StateHasChanged` renders synchronously.
+- **No dispose hook** — connections you wire manually in `OnAfterRender` must be cleaned up yourself; `Unmount` only disconnects render-wired events.
 
 ## License
 

@@ -10,5 +10,6 @@ return {
 	RenderHandle = require(script.RenderHandle),
 	EventCallback = require(script.EventCallback),
 	EventCallbackFactory = require(script.EventCallbackFactory),
+	ElementReference = require(script.ElementReference),
 	RuntimeHelpers = require(script.RuntimeHelpers),
 }

@@ -71,6 +71,7 @@ local function refreshChild(childHandle, parameters)
 end
 
 function RenderHandle:Apply(frames)
+	if self._unmounted then return end
 	self._tree = Reconciler.Reconcile(
 		self._tree,
 		frames,
@@ -81,9 +82,18 @@ end
 
 -- Tears down the rendered tree without re-applying. Called when the
 -- component is removed by its parent (or by Unmount at the root).
+-- Detaches the component's handle so a StateHasChanged after unmount
+-- is a no-op instead of rebuilding the tree under a possibly-destroyed
+-- parent; the _unmounted flag backstops any direct Apply call.
 function RenderHandle:Unmount()
-	Reconciler.Teardown(self._tree)
+	if self._unmounted then return end
+	self._unmounted = true
+	Reconciler.Teardown(self._tree, self._parent)
 	self._tree = nil
+	if self._component then
+		self._component._renderHandle = nil
+		self._component = nil
+	end
 end
 
 return RenderHandle

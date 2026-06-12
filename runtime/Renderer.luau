@@ -26,6 +26,7 @@ function Renderer.Mount(componentType, parentInstance, instantiator)
 	end
 	local component = instantiator:Instantiate(componentType)
 	local handle = RenderHandle.new(parentInstance, instantiator)
+	handle._component = component  -- lets Unmount detach the handle
 	component:_attachHandle(handle)
 	component:_render(true)
 	return handle

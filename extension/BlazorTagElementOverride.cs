@@ -45,8 +45,21 @@ namespace RobloxCSharp.Extensions.Blazor
 
         public string Name => "Blazor.TagElementOverride";
 
+        // Simple names of the shim types in RobloxCSharp.Blazor.Tags,
+        // cached once per compile so SuppressImports only pays for a
+        // semantic lookup on identifiers that could actually be shims.
+        private HashSet<string> _shimNames;
+
         public void OnCompile(Compilation compilation, IReadOnlyList<Plugin> plugins, DiagnosticBag diagnostics)
         {
+            INamespaceSymbol ns = compilation.GlobalNamespace;
+            foreach (string part in TagsNamespace.Split('.'))
+            {
+                ns = ns?.GetNamespaceMembers().FirstOrDefault(n => n.Name == part);
+            }
+            _shimNames = ns is null
+                ? new HashSet<string>()
+                : ns.GetTypeMembers().Select(t => t.Name).ToHashSet();
         }
 
         public LuaNode TryRewrite(SyntaxNode syntax, TransformerState state)
@@ -88,18 +101,19 @@ namespace RobloxCSharp.Extensions.Blazor
             // ship as Luau modules — the rewrite above replaces the only
             // call site. Drop their imports so the emitted CS.import
             // doesn't point at a non-existent Plugins.Blazor.Frame.
-            if (state.SemanticModel.Compilation is null) yield break;
+            //
+            // Symbol-based rather than using-directive-based so
+            // fully-qualified references (`RobloxCSharp.Blazor.Tags.X`)
+            // are suppressed the same as `using`-resolved ones.
+            if (_shimNames is null || _shimNames.Count == 0) yield break;
 
-            foreach (UsingDirectiveSyntax usingDir in syntax.DescendantNodes().OfType<UsingDirectiveSyntax>())
+            HashSet<INamedTypeSymbol> seen = new(SymbolEqualityComparer.Default);
+            foreach (SimpleNameSyntax name in syntax.DescendantNodes().OfType<SimpleNameSyntax>())
             {
-                if (usingDir.Name is null) continue;
-                INamespaceSymbol ns = state.SemanticModel.GetSymbolInfo(usingDir.Name).Symbol as INamespaceSymbol;
-                if (ns?.ToDisplayString() != TagsNamespace) continue;
-
-                foreach (INamedTypeSymbol shim in ns.GetTypeMembers())
-                {
-                    yield return shim;
-                }
+                if (!_shimNames.Contains(name.Identifier.Text)) continue;
+                if (state.SemanticModel.GetSymbolInfo(name).Symbol is not INamedTypeSymbol type) continue;
+                if (!IsTagShim(type)) continue;
+                if (seen.Add(type)) yield return type;
             }
         }
 
